@@ -33,6 +33,7 @@ import com.squareup.kotlinpoet.ksp.writeTo
 import me.tatarka.inject.annotations.Component
 import software.amazon.lastmile.kotlin.inject.anvil.ContextAware
 import software.amazon.lastmile.kotlin.inject.anvil.MergeComponent
+import software.amazon.lastmile.kotlin.inject.anvil.OPTION_GENERATE_COMPANION_EXTENSIONS
 import software.amazon.lastmile.kotlin.inject.anvil.addOriginAnnotation
 import kotlin.reflect.KClass
 
@@ -88,9 +89,13 @@ import kotlin.reflect.KClass
 internal class GenerateKotlinInjectComponentProcessor(
     private val codeGenerator: CodeGenerator,
     override val logger: KSPLogger,
+    options: Map<String, String>,
 ) : SymbolProcessor, ContextAware {
 
     private val processedComponents = mutableSetOf<String>()
+
+    private val generateCompanionExtensions = options[OPTION_GENERATE_COMPANION_EXTENSIONS]
+        .equals("true", ignoreCase = true)
 
     @Suppress("ReturnCount")
     override fun process(resolver: Resolver): List<KSAnnotated> {
@@ -186,24 +191,37 @@ internal class GenerateKotlinInjectComponentProcessor(
                     .addSuperinterface(
                         className.peerClass("KotlinInject${clazz.mergedClassName}"),
                     )
-                    .addType(TypeSpec.companionObjectBuilder().build())
+                    .apply {
+                        // Add a companion object when using `kotlin-inject`
+                        // generateCompanionExtensions option, to allow generating a create()
+                        // method on it.
+                        if (generateCompanionExtensions) {
+                            addType(TypeSpec.companionObjectBuilder().build())
+                        }
+                    }
                     .build(),
             )
-            .addFunction(
-                FunSpec
-                    .builder("create")
-                    .receiver(
-                        KClass::class.asTypeName().parameterizedBy(clazz.toClassName()),
+            .apply {
+                // Don't generate a create() method on the component's class when using
+                // `kotlin-inject` generateCompanionExtensions option.
+                if (!generateCompanionExtensions) {
+                    addFunction(
+                        FunSpec
+                            .builder("create")
+                            .receiver(
+                                KClass::class.asTypeName().parameterizedBy(clazz.toClassName()),
+                            )
+                            .addParameters(parametersAsSpec)
+                            .returns(clazz.toClassName())
+                            .addStatement(
+                                "return %T::class.create(${parametersAsSpec.joinToString { it.name }})",
+                                className,
+                            )
+                            .addModifiers(clazz.getAccessModifier())
+                            .build(),
                     )
-                    .addParameters(parametersAsSpec)
-                    .returns(clazz.toClassName())
-                    .addStatement(
-                        "return %T::class.create(${parametersAsSpec.joinToString { it.name }})",
-                        className,
-                    )
-                    .addModifiers(clazz.getAccessModifier())
-                    .build(),
-            )
+                }
+            }
             .build()
 
         fileSpec.writeTo(codeGenerator, aggregating = false)

@@ -70,6 +70,7 @@ class KotlinInjectExtensionSymbolProcessorProvider : SymbolProcessorProvider {
                 GenerateKotlinInjectComponentProcessor(
                     codeGenerator = environment.codeGenerator,
                     logger = environment.logger,
+                    options = environment.options,
                 ),
             )
             addIfEnabled(

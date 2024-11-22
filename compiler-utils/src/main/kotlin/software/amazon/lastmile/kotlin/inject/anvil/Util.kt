@@ -24,6 +24,12 @@ const val LOOKUP_PACKAGE = "amazon.lastmile.inject"
 const val OPTION_CONTRIBUTING_ANNOTATIONS = "kotlin-inject-anvil-contributing-annotations"
 
 /**
+ * A boolean used by `kotlin-inject` to generate the create() method on the companion object
+ * instead of the component's class.
+ */
+const val OPTION_GENERATE_COMPANION_EXTENSIONS = "me.tatarka.inject.generateCompanionExtensions"
+
+/**
  * Makes the given [String] start with a lowercase letter.
  */
 fun String.decapitalize(): String = replaceFirstChar { it.lowercase(Locale.US) }

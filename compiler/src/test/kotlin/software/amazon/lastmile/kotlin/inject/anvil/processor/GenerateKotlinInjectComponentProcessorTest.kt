@@ -6,10 +6,13 @@ import assertk.assertThat
 import assertk.assertions.doesNotContain
 import assertk.assertions.isEqualTo
 import assertk.assertions.isNotNull
+import assertk.assertions.isNull
 import assertk.assertions.isTrue
 import com.tschuchort.compiletesting.JvmCompilationResult
 import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
 import org.junit.jupiter.api.Test
+import software.amazon.lastmile.kotlin.inject.anvil.Compilation
+import software.amazon.lastmile.kotlin.inject.anvil.OPTION_GENERATE_COMPANION_EXTENSIONS
 import software.amazon.lastmile.kotlin.inject.anvil.compile
 import software.amazon.lastmile.kotlin.inject.anvil.componentInterface
 import software.amazon.lastmile.kotlin.inject.anvil.inner
@@ -61,8 +64,6 @@ class GenerateKotlinInjectComponentProcessorTest {
                 .invoke(component)
 
             assertThat(impl.isInstance(implValue)).isTrue()
-
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -108,8 +109,6 @@ class GenerateKotlinInjectComponentProcessorTest {
                 .invoke(component)
 
             assertThat(impl.isInstance(implValue)).isTrue()
-
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -153,8 +152,6 @@ class GenerateKotlinInjectComponentProcessorTest {
                 .invoke(component)
 
             assertThat(impl.isInstance(implValue)).isTrue()
-
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -198,8 +195,6 @@ class GenerateKotlinInjectComponentProcessorTest {
                 .invoke(component)
 
             assertThat(impl.isInstance(implValue)).isTrue()
-
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -237,7 +232,7 @@ class GenerateKotlinInjectComponentProcessorTest {
             val childComponent = classLoader.loadClass("software.amazon.test.ChildComponent")
                 .newComponent<Any>()
 
-            val component = componentInterface.kotlinInjectComponent.createFunction
+            val component = componentInterface.kotlinInjectComponent.createFunction!!
                 .invoke(null, componentInterface.kotlinInjectComponent::class, childComponent)
 
             val implValue = component::class.java.methods
@@ -267,7 +262,6 @@ class GenerateKotlinInjectComponentProcessorTest {
             val component = componentInterface.kotlinInjectComponent.newComponent<Any>()
 
             assertThat(component::class.visibility).isEqualTo(KVisibility.INTERNAL)
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -290,7 +284,6 @@ class GenerateKotlinInjectComponentProcessorTest {
             val component = componentInterface.kotlinInjectComponent.newComponent<Any>()
 
             assertThat(component::class.visibility).isEqualTo(KVisibility.INTERNAL)
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -331,8 +324,6 @@ class GenerateKotlinInjectComponentProcessorTest {
                 .invoke(component)
 
             assertThat(impl.isInstance(implValue)).isTrue()
-
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -370,8 +361,6 @@ class GenerateKotlinInjectComponentProcessorTest {
             val component = componentInterface.kotlinInjectComponent.newComponent<Any>()
 
             assertThat(component::class.java.methods.map { it.name }).doesNotContain("getBase")
-
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -410,7 +399,7 @@ class GenerateKotlinInjectComponentProcessorTest {
         ) {
             // Note that this invokes the generated function and verifies that
             // KClass<ComponentInterface> is the receiver type.
-            val component = componentInterface.kotlinInjectComponent.createFunction
+            val component = componentInterface.kotlinInjectComponent.createFunction!!
                 .invoke(null, componentInterface.kotlin)
 
             val implValue = component::class.java.methods
@@ -418,8 +407,6 @@ class GenerateKotlinInjectComponentProcessorTest {
                 .invoke(component)
 
             assertThat(impl.isInstance(implValue)).isTrue()
-
-            assertThat(component::class.companionObject).isNotNull()
         }
     }
 
@@ -458,7 +445,7 @@ class GenerateKotlinInjectComponentProcessorTest {
         ) {
             // Note that this invokes the generated function and verifies that
             // KClass<ComponentInterface> is the receiver type.
-            val component = componentInterface.kotlinInjectComponent.createFunction
+            val component = componentInterface.kotlinInjectComponent.createFunction!!
                 .invoke(null, componentInterface.kotlin, "hello", 6)
 
             val implValue = component::class.java.methods
@@ -467,9 +454,33 @@ class GenerateKotlinInjectComponentProcessorTest {
 
             assertThat(impl.isInstance(implValue)).isTrue()
             assertThat(implValue?.toString()).isEqualTo("hello6")
-
-            assertThat(component::class.companionObject).isNotNull()
         }
+    }
+
+    @Test
+    fun `a companion object is generated`() {
+        Compilation()
+            .configureKotlinInjectAnvilProcessor(
+                processorOptions = mapOf(OPTION_GENERATE_COMPANION_EXTENSIONS to "true"),
+            )
+            .compile(
+                """
+                package software.amazon.test
+                                
+                import software.amazon.lastmile.kotlin.inject.anvil.AppScope
+                import software.amazon.lastmile.kotlin.inject.anvil.MergeComponent
+                import software.amazon.lastmile.kotlin.inject.anvil.SingleIn
+
+                @MergeComponent(AppScope::class)
+                @SingleIn(AppScope::class)
+                internal abstract class ComponentInterface
+                """,
+            ) {
+                val component = componentInterface.kotlinInjectComponent.newComponent<Any>()
+
+                assertThat(component::class.companionObject).isNotNull()
+                assertThat(componentInterface.kotlinInjectComponent.createFunction).isNull()
+            }
     }
 
     private val JvmCompilationResult.impl: Class<*>
@@ -481,9 +492,13 @@ class GenerateKotlinInjectComponentProcessorTest {
                 canonicalName.substring(packageName.length + 1).replace(".", ""),
         )
 
-    private val Class<*>.createFunction: Method
-        get() = classLoader.loadClass("${canonicalName}Kt").methods.single { it.name == "create" }
+    private val Class<*>.createFunction: Method?
+        get() = try {
+            classLoader.loadClass("${canonicalName}Kt")
+        } catch (_: ClassNotFoundException) {
+            null
+        }?.methods?.singleOrNull { it.name == "create" }
 
     private val KClass<*>.companionObject: Field?
-        get() = java.fields.single { it.name == "Companion" }
+        get() = java.fields.singleOrNull { it.name == "Companion" }
 }
